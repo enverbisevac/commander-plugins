@@ -1,0 +1,3 @@
+[submodule "plugins/embroidery-viewer"]
+	path = plugins/embroidery-viewer
+	url = https://github.com/enverbisevac/commander-plugin-embroidery.git
