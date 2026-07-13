@@ -1,0 +1,21 @@
+{
+  "name": "commander-plugins",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Plugin catalog for Commander. Cross-platform tooling, zero dependencies.",
+  "type": "module",
+  "bin": {
+    "commander-plugins": "scripts/plugins.mjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "validate": "node scripts/plugins.mjs validate",
+    "add": "node scripts/plugins.mjs add",
+    "update": "node scripts/plugins.mjs update",
+    "remove": "node scripts/plugins.mjs remove",
+    "package": "node scripts/plugins.mjs package",
+    "deploy": "node scripts/plugins.mjs deploy"
+  }
+}

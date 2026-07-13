@@ -1,0 +1,48 @@
+name: deploy-plugins
+
+# Publish the plugin catalog to the object-store root (<bucket>/plugins/).
+# Runs on any change to the pinned plugin set, and on demand.
+on:
+  push:
+    branches: [main]
+    paths:
+      - "plugins/**"
+      - ".gitmodules"
+      - "scripts/**"
+      - ".github/workflows/deploy.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-plugins
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Validate plugin manifests
+        run: node scripts/plugins.mjs validate
+
+      - name: Package + deploy catalog
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          # Bucket/URL/endpoint live in repo secrets so the hosting stays out of
+          # this public repo. Use secrets (not vars) so they aren't printed in logs.
+          STORAGE_BUCKET: ${{ secrets.STORAGE_BUCKET }}
+          PUBLIC_BASE_URL: ${{ secrets.PUBLIC_BASE_URL }}
+          STORAGE_ENDPOINT_URL: ${{ secrets.STORAGE_ENDPOINT_URL }}
+          # Override to publish under a non-root prefix (e.g. a staging catalog).
+          PLUGINS_PREFIX: ${{ vars.PLUGINS_PREFIX }}
+        run: node scripts/plugins.mjs deploy

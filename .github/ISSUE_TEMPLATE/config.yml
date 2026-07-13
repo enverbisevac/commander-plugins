@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Plugin protocol & how to build one
+    url: https://github.com/enverbisevac/commander-plugins/blob/main/CONTRIBUTING.md
+    about: Read this before submitting — the plugin.json format and the host protocol.
+  - name: Commander app
+    url: https://github.com/enverbisevac/commander
+    about: The file manager these plugins extend.

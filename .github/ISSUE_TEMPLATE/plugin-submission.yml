@@ -1,0 +1,78 @@
+name: Plugin submission
+description: Submit a plugin for review and inclusion in the Commander marketplace.
+title: "[plugin] <name>"
+labels: ["plugin-submission"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for submitting a plugin! It will be reviewed before being added.
+        Your plugin must be a **public git repository** whose root holds a valid
+        `plugin.json` (see [CONTRIBUTING](../blob/main/CONTRIBUTING.md) for the
+        protocol). Once approved, the exact commit you reference is pinned as a
+        git submodule.
+  - type: input
+    id: name
+    attributes:
+      label: Plugin name
+      description: Must match the "name" in plugin.json (A-Z a-z 0-9 . _ - , max 96).
+      placeholder: my-viewer
+    validations:
+      required: true
+  - type: input
+    id: repo
+    attributes:
+      label: Git repository URL
+      description: Public https:// clone URL of the plugin repo.
+      placeholder: https://github.com/you/my-viewer
+    validations:
+      required: true
+  - type: input
+    id: ref
+    attributes:
+      label: Commit / tag to pin (optional)
+      description: The exact ref to review and pin. Defaults to the default branch tip.
+      placeholder: v1.0.0
+  - type: dropdown
+    id: capability
+    attributes:
+      label: Capability
+      options:
+        - viewer
+        - packer
+        - fs (filesystem)
+        - converter
+        - other / multiple
+    validations:
+      required: true
+  - type: checkboxes
+    id: platforms
+    attributes:
+      label: Supported platforms
+      options:
+        - label: macOS
+        - label: Linux
+        - label: Windows
+  - type: textarea
+    id: description
+    attributes:
+      label: What it does
+      description: One or two sentences, plus which file types/extensions it handles.
+    validations:
+      required: true
+  - type: input
+    id: license
+    attributes:
+      label: License
+      placeholder: MIT
+  - type: checkboxes
+    id: acknowledgements
+    attributes:
+      label: Acknowledgements
+      options:
+        - label: The plugin follows the Commander plugin protocol (docs/plugins.md).
+          required: true
+        - label: I understand the referenced commit will be reviewed and pinned; later pushes are not published until re-approved.
+          required: true
+        - label: The repository contains no secrets, credentials, or bundled malware.
+          required: true

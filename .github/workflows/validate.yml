@@ -1,0 +1,34 @@
+name: validate-plugins
+
+# Validate manifests + that the catalog packages cleanly, without uploading.
+# Runs on PRs (e.g. a carry-forward or a proposed submodule change).
+on:
+  pull_request:
+    paths:
+      - "plugins/**"
+      - ".gitmodules"
+      - "scripts/**"
+  workflow_dispatch:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Validate plugin manifests
+        run: node scripts/plugins.mjs validate
+
+      - name: Package (dry run, no upload)
+        env:
+          PUBLIC_BASE_URL: https://example.invalid/commander
+        run: node scripts/plugins.mjs package
