@@ -35,9 +35,32 @@ const KNOWN_CAPS = ["viewer", "thumbnail", "packer", "fs", "converter"];
 const ZIP_EXCLUDE = new Set([".git", ".github", ".gitignore", ".gitmodules", ".DS_Store"]);
 
 function die(msg) { console.error(msg); process.exit(1); }
-function run(args, cwd = ROOT) { execFileSync("git", args, { cwd, stdio: "inherit" }); }
+function run(args, cwd = ROOT) {
+  try { execFileSync("git", args, { cwd, stdio: "inherit" }); }
+  catch { die(`\nERROR: 'git ${args.join(" ")}' failed (see output above).`); }
+}
 function capture(args, cwd = ROOT) { return execFileSync("git", args, { cwd, encoding: "utf8" }).trim(); }
 function captureOr(args, cwd, fb = "") { try { return capture(args, cwd); } catch { return fb; } }
+
+// Is a submodule path referenced by .gitmodules or the index? Used to tell a
+// truly-orphaned .git/modules dir (safe to drop) from a live one.
+function isRegistered(rel) {
+  if (existsSync(join(ROOT, ".gitmodules")) && parseGitmodules().some((m) => m.path === rel)) return true;
+  return captureOr(["ls-files", "--stage", "--", rel]).length > 0;
+}
+
+// Fetch + detach-checkout a ref in a submodule, verifying it resolves first so a
+// missing tag gives a clear message (git's own error is "--detach does not take
+// a path argument").
+function checkoutRef(dest, ref) {
+  run(["fetch", "--tags", "origin"], dest);
+  if (!captureOr(["rev-parse", "--verify", "--quiet", `${ref}^{commit}`], dest)) {
+    const tags = captureOr(["tag", "--list"], dest).split(/\r?\n/).filter(Boolean);
+    die(`\nERROR: ref '${ref}' not found in the plugin repo after fetch.\n` +
+        `  Is the tag pushed? Available tags: ${tags.length ? tags.join(", ") : "(none)"}`);
+  }
+  run(["checkout", "--detach", ref], dest);
+}
 
 function readManifest(dir) { return JSON.parse(readFileSync(join(dir, "plugin.json"), "utf8")); }
 
@@ -325,13 +348,19 @@ function add(rest) {
   const dest = join(ROOT, rel);
   if (existsSync(dest)) die(`ERROR: ${rel} already exists (use 'update' to re-pin)`);
 
+  // A previous interrupted add can leave an orphaned git dir under .git/modules
+  // that makes `submodule add` refuse. If nothing references it, drop it so the
+  // add is retry-safe.
+  const orphan = join(ROOT, ".git", "modules", rel);
+  if (existsSync(orphan) && !isRegistered(rel)) {
+    console.log(`Removing orphaned git dir from a previous attempt: .git/modules/${rel}`);
+    rmSync(orphan, { recursive: true, force: true });
+  }
+
   console.log(`Adding submodule ${url} -> ${rel}`);
   run(["submodule", "add", url, rel]);
   run(["submodule", "update", "--init", rel]);
-  if (ref) {
-    run(["fetch", "--tags", "origin"], dest);
-    run(["checkout", "--detach", ref], dest);
-  }
+  if (ref) checkoutRef(dest, ref);
 
   try {
     const real = readManifest(dest).name || "";
@@ -358,8 +387,7 @@ function update(rest) {
     const dest = join(ROOT, rel);
     console.log(`== ${rel} ==`);
     if (ref) {
-      run(["fetch", "--tags", "origin"], dest);
-      run(["checkout", "--detach", ref], dest);
+      checkoutRef(dest, ref);
     } else {
       try { run(["fetch", "--tags", "origin"], dest); } catch {}
       run(["submodule", "update", "--remote", "--checkout", rel]);
