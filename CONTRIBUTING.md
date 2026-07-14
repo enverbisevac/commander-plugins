@@ -5,7 +5,7 @@ your git repo. Commander drives it as a one-shot subprocess:
 `<exec...> <method> <paramsJson>`, reads one JSON object from stdout, and falls
 back to built-in behavior if it errors. The full protocol (every method, params,
 and reply shape) lives in the Commander repo:
-[`docs/plugins.md`](https://github.com/enverbisevac/commander/blob/main/docs/plugins.md).
+[`docs/plugins.md`](https://enver.bisevac.com/docs/commander-plugins).
 This page is the summary you need to submit here.
 
 ## `plugin.json`
