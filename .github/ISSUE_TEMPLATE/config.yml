@@ -4,5 +4,5 @@ contact_links:
     url: https://github.com/enverbisevac/commander-plugins/blob/main/CONTRIBUTING.md
     about: Read this before submitting — the plugin.json format and the host protocol.
   - name: Commander app
-    url: https://github.com/enverbisevac/commander
+    url: https://enver.bisevac.com/commander
     about: The file manager these plugins extend.

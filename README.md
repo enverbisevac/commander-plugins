@@ -1,6 +1,6 @@
 # commander-plugins
 
-The plugin catalog for [Commander](https://github.com/enverbisevac/commander).
+The plugin catalog for [Commander](https://enver.bisevac.com/commander).
 
 Every plugin lives here as a **git submodule** under `plugins/<name>`. A dev
 submits their plugin's git URL, the owner reviews it, and once approved it is
