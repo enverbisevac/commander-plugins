@@ -13,3 +13,6 @@
 [submodule "plugins/sqlite-viewer"]
 	path = plugins/sqlite-viewer
 	url = https://github.com/enverbisevac/commander-plugin-sqlite-viewer.git
+[submodule "plugins/diskimage-fs"]
+	path = plugins/diskimage-fs
+	url = https://github.com/enverbisevac/commander-plugin-diskimage-fs.git
