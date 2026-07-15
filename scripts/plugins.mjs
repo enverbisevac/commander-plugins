@@ -335,13 +335,33 @@ function splitRef(rest) {
   return { ref, pos };
 }
 
+// Clone <url> into a throwaway shallow dir just to read plugin.json's "name", so
+// `add` can create the submodule directly at plugins/<manifest-name>: one clean
+// `submodule add`, no post-hoc rename, and no leftover .git/modules storage or
+// 'commander-plugin-*' section to clean up later. Returns "" if the probe fails.
+function discoverManifestName(url) {
+  const slug = basename(url).replace(/\.git$/, "").replace(/[^A-Za-z0-9._-]/g, "_");
+  const tmp = join(ROOT, ".git", `plugin-probe-${slug}`);
+  rmSync(tmp, { recursive: true, force: true });
+  let name = "";
+  try {
+    captureOr(["clone", "--quiet", "--depth", "1", url, tmp]);
+    name = readManifest(tmp).name || "";
+  } catch { name = ""; }
+  rmSync(tmp, { recursive: true, force: true });
+  return name;
+}
+
 function add(rest) {
   const { ref, pos } = splitRef(rest);
   const url = pos[0];
   let name = pos[1] || "";
   if (!url) die("usage: plugins add <git-url> [name] [--ref <ref>]");
   if (!SAFE_URL.test(url)) die(`ERROR: refusing non-https/ssh git url: ${url}`);
-  if (!name) name = basename(url).replace(/\.git$/, "");
+  // Default the dir to plugin.json's "name" (probed from a throwaway clone), not
+  // the repo/url basename: repos are usually 'commander-plugin-<x>' while the
+  // manifest name is just '<x>', and validate() requires dir == manifest name.
+  if (!name) name = discoverManifestName(url) || basename(url).replace(/\.git$/, "");
   if (!SAFE_NAME.test(name)) die(`ERROR: unsafe plugin name '${name}'`);
 
   const rel = `plugins/${name}`;
@@ -362,11 +382,14 @@ function add(rest) {
   run(["submodule", "update", "--init", rel]);
   if (ref) checkoutRef(dest, ref);
 
+  // Without an explicit name the dir already matches the manifest (probed above).
+  // With one, guard the case where it disagrees — validate() requires dir ==
+  // manifest name, so surface it clearly instead of failing cryptically.
   try {
     const real = readManifest(dest).name || "";
     if (real && real !== name) {
-      console.error(`NOTE: plugin.json name is '${real}' but submodule dir is '${name}'.`);
-      console.error(`      Re-add with the matching name, or: git mv ${rel} plugins/${real}`);
+      console.error(`NOTE: plugin.json name is '${real}' but you added it as '${name}'.`);
+      console.error(`      Omit the name argument (it defaults to the manifest name), or re-add as '${real}'.`);
     }
   } catch {}
 
