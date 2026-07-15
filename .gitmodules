@@ -16,3 +16,6 @@
 [submodule "plugins/diskimage-fs"]
 	path = plugins/diskimage-fs
 	url = https://github.com/enverbisevac/commander-plugin-diskimage-fs.git
+[submodule "plugins/zip-extras-packer"]
+	path = plugins/zip-extras-packer
+	url = https://github.com/enverbisevac/commander-plugin-zip-extras-packer.git
