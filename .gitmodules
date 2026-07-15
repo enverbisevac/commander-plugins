@@ -19,3 +19,6 @@
 [submodule "plugins/zip-extras-packer"]
 	path = plugins/zip-extras-packer
 	url = https://github.com/enverbisevac/commander-plugin-zip-extras-packer.git
+[submodule "plugins/archive-fs"]
+	path = plugins/archive-fs
+	url = https://github.com/enverbisevac/commander-plugin-archive-fs.git
