@@ -433,12 +433,31 @@ function update(rest) {
 function remove(rest) {
   const name = rest[0];
   if (!name) die("usage: plugins remove <name>");
+  if (!SAFE_NAME.test(name)) die(`ERROR: unsafe plugin name '${name}'`);
   const rel = `plugins/${name}`;
-  if (!existsSync(join(ROOT, rel))) die(`ERROR: no plugin at ${rel}`);
-  run(["submodule", "deinit", "-f", rel]);
-  run(["rm", "-f", rel]);
-  rmSync(join(ROOT, ".git", "modules", "plugins", name), { recursive: true, force: true });
-  console.log(`\nRemoved ${rel}. Commit + open a PR (deploy prunes it from storage).`);
+  const dest = join(ROOT, rel);
+  if (!existsSync(dest)) die(`ERROR: no plugin at ${rel}`);
+  const modules = join(ROOT, ".git", "modules", "plugins", name);
+
+  if (isRegistered(rel)) {
+    // A properly-registered submodule: let git unwire it — deinit clears the
+    // submodule.<name> section in .git/config, `git rm` drops the gitlink and
+    // the .gitmodules entry.
+    run(["submodule", "deinit", "-f", rel]);
+    run(["rm", "-f", rel]);
+    rmSync(modules, { recursive: true, force: true });
+    console.log(`\nRemoved ${rel}. Commit + open a PR (deploy prunes it from storage).`);
+  } else {
+    // An orphaned leftover from an interrupted `add` (present on disk but absent
+    // from .gitmodules and the index): `git submodule deinit` would abort with a
+    // pathspec error, so tear it down by hand — worktree, git storage, and any
+    // stale submodule.<name> section left behind in .git/config.
+    console.log(`plugins/${name} is not a registered submodule; cleaning up orphaned leftovers.`);
+    rmSync(dest, { recursive: true, force: true });
+    rmSync(modules, { recursive: true, force: true });
+    captureOr(["config", "--remove-section", `submodule.${rel}`]);
+    console.log(`\nRemoved orphaned ${rel} (nothing to commit — it was never tracked).`);
+  }
 }
 
 // ---- dispatch ------------------------------------------------------------
