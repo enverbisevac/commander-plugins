@@ -7,3 +7,6 @@
 [submodule "plugins/containers-fs"]
 	path = plugins/containers-fs
 	url = https://github.com/enverbisevac/commander-plugin-containers-fs.git
+[submodule "plugins/csv-viewer"]
+	path = plugins/csv-viewer
+	url = https://github.com/enverbisevac/commander-plugin-csv-viewer.git
