@@ -10,3 +10,6 @@
 [submodule "plugins/csv-viewer"]
 	path = plugins/csv-viewer
 	url = https://github.com/enverbisevac/commander-plugin-csv-viewer.git
+[submodule "plugins/sqlite-viewer"]
+	path = plugins/sqlite-viewer
+	url = https://github.com/enverbisevac/commander-plugin-sqlite-viewer.git
