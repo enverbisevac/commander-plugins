@@ -1,3 +1,6 @@
 [submodule "plugins/embroidery-viewer"]
 	path = plugins/embroidery-viewer
 	url = https://github.com/enverbisevac/commander-plugin-embroidery.git
+[submodule "plugins/sevenzip-packer"]
+	path = plugins/sevenzip-packer
+	url = https://github.com/enverbisevac/commander-plugin-sevenzip-packer
