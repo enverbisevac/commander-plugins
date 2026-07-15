@@ -4,3 +4,6 @@
 [submodule "plugins/sevenzip-packer"]
 	path = plugins/sevenzip-packer
 	url = https://github.com/enverbisevac/commander-plugin-sevenzip-packer
+[submodule "plugins/containers-fs"]
+	path = plugins/containers-fs
+	url = https://github.com/enverbisevac/commander-plugin-containers-fs.git
