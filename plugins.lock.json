@@ -1,4 +1,69 @@
 {
   "schema": 1,
-  "plugins": {}
+  "plugins": {
+    "archive-fs": {
+      "version": "1.0.0",
+      "tag": "v1.0.0",
+      "commit": "e0800ceb753ca0f7beeda0d8ae3d36c7e3de8ac7",
+      "artifact": "archive-fs.zip",
+      "sha256": "02989077b518d73948fc9736c3000a7a5cf984860c49d95ac00c931071d48ebb",
+      "size": 6334
+    },
+    "containers-fs": {
+      "version": "1.0.0",
+      "tag": "v1.0.0",
+      "commit": "9b384fed9ccaa51c2466a0d07c2f6a3a2960f5dc",
+      "artifact": "containers-fs.zip",
+      "sha256": "4b407b4a8416aea47ba63c37fe6e0be5b2f583896ca73096f6078b67e03f2216",
+      "size": 10603
+    },
+    "csv-viewer": {
+      "version": "1.0.0",
+      "tag": "v1.0.0",
+      "commit": "bb11ff05c21920154d7ee5dafc8057d54e9c3f58",
+      "artifact": "csv-viewer.zip",
+      "sha256": "0f293753cdd380c943e37de3ad7b24380a54a71c8188b8cdf8c6c8f580ca7f25",
+      "size": 5476
+    },
+    "diskimage-fs": {
+      "version": "1.0.0",
+      "tag": "v1.0.0",
+      "commit": "2a60c7119c17e5b0bab06344056e3ec373e274e2",
+      "artifact": "diskimage-fs.zip",
+      "sha256": "d205bf6d5240326231ca205cd2cf59e256424dd2d0b15e46354ae1733fdb2800",
+      "size": 6485
+    },
+    "embroidery-viewer": {
+      "version": "0.1.0",
+      "tag": "v0.1.0",
+      "commit": "4e3555d4c1d42172e5c7077aa41fa729d76d8b63",
+      "artifact": "embroidery-viewer.zip",
+      "sha256": "1b17078a9c2a70de2a695689d9945588a2ecff27d47908ed1e27ea1cf9e8b6d2",
+      "size": 8570
+    },
+    "sevenzip-packer": {
+      "version": "1.0.0",
+      "tag": "v1.0.0",
+      "commit": "687b614afa8848b635683ca692a000475b61f108",
+      "artifact": "sevenzip-packer.zip",
+      "sha256": "be6bc353074a6ca006799514dfb4cd7d133f052fa05ff15b36ec5fc4a0b6bb9c",
+      "size": 6636
+    },
+    "sqlite-viewer": {
+      "version": "1.0.0",
+      "tag": "v1.0.0",
+      "commit": "0546734b4d48d773ac35db2461f604fe353e8dd0",
+      "artifact": "sqlite-viewer.zip",
+      "sha256": "8416594473127d4d18fbffbb002db9eb4078182bfdfc63e4433bb597c0c8ffe6",
+      "size": 5997
+    },
+    "zip-extras-packer": {
+      "version": "1.0.0",
+      "tag": "v1.0.0",
+      "commit": "0f5e55fbaf2b0070ecddda2223f9be69b2ffeb32",
+      "artifact": "zip-extras-packer.zip",
+      "sha256": "1c6cc3f8266b8cb06fc1c255fa1f5c786e31b13fb4b15a02ead45c7453d3d333",
+      "size": 5643
+    }
+  }
 }
