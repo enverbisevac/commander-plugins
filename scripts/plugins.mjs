@@ -2,15 +2,17 @@
 //
 // Cross-platform plugin-catalog toolchain (macOS / Linux / Windows). Uses only
 // Node built-ins + `git`; `deploy` additionally shells out to the `aws` CLI.
-// No bash / zip / shasum / awk, so a plugin developer on any OS can add and
-// validate a plugin, and CI builds the catalog the same way.
+// No language toolchains are used here: plugin repositories build and publish
+// their own release ZIPs, and this catalog validates + copies those exact bytes.
 //
 // Commands:
 //   node scripts/plugins.mjs validate
 //   node scripts/plugins.mjs add <git-url> [name] [--ref <branch-or-tag-or-sha>]
 //   node scripts/plugins.mjs update <name>|--all [--ref <ref>]
 //   node scripts/plugins.mjs remove <name>
-//   node scripts/plugins.mjs package        # build dist/plugins/ (needs PUBLIC_BASE_URL)
+//   node scripts/plugins.mjs lock <name>|--all
+//   node scripts/plugins.mjs verify-release <plugin-dir> <archive.zip>
+//   node scripts/plugins.mjs package        # fetch verified release assets into dist/plugins/
 //   node scripts/plugins.mjs deploy         # package + sync to the object store
 //
 // (npm run aliases exist: `npm run validate`, `npm run add -- <url> <name>`, …)
@@ -19,20 +21,26 @@ import {
   readFileSync, writeFileSync, readdirSync, statSync, lstatSync,
   mkdirSync, rmSync, existsSync,
 } from "node:fs";
-import { join, basename, dirname, sep } from "node:path";
+import { join, basename, dirname, sep, posix } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
-import { deflateRawSync } from "node:zlib";
+import { inflateRawSync } from "node:zlib";
 import { execFileSync } from "node:child_process";
+import { isDeepStrictEqual } from "node:util";
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), "..");
 const PLUGINS_DIR = process.env.PLUGINS_SRC || join(ROOT, "plugins");
+const LOCK_PATH = join(ROOT, "plugins.lock.json");
 
 const SAFE_NAME = /^[A-Za-z0-9._-]{1,96}$/;
 const SAFE_PATH = /^plugins\/[A-Za-z0-9._-]{1,96}$/;
 const SAFE_URL = /^(https:\/\/|ssh:\/\/|git@)/;
+const SAFE_ASSET = /^[A-Za-z0-9._-]{1,160}\.zip$/;
+const SAFE_VERSION = /^[0-9]+\.[0-9]+\.[0-9]+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
 const KNOWN_CAPS = ["viewer", "thumbnail", "packer", "fs", "converter"];
 const ZIP_EXCLUDE = new Set([".git", ".github", ".gitignore", ".gitmodules", ".DS_Store"]);
+const MAX_RELEASE_BYTES = 256 * 1024 * 1024;
+const MAX_MANIFEST_BYTES = 1024 * 1024;
 
 function die(msg) { console.error(msg); process.exit(1); }
 function run(args, cwd = ROOT) {
@@ -63,6 +71,36 @@ function checkoutRef(dest, ref) {
 }
 
 function readManifest(dir) { return JSON.parse(readFileSync(join(dir, "plugin.json"), "utf8")); }
+
+function readLock() {
+  if (!existsSync(LOCK_PATH)) return { schema: 1, plugins: {} };
+  const lock = JSON.parse(readFileSync(LOCK_PATH, "utf8"));
+  if (lock.schema !== 1 || !lock.plugins || typeof lock.plugins !== "object") die("ERROR: invalid plugins.lock.json");
+  return lock;
+}
+
+function writeLock(lock) {
+  lock.plugins = Object.fromEntries(Object.entries(lock.plugins).sort(([a], [b]) => a.localeCompare(b)));
+  writeFileSync(LOCK_PATH, `${JSON.stringify(lock, null, 2)}\n`);
+}
+
+function relativeExecPaths(manifest) {
+  return (manifest.exec || []).filter((arg) => typeof arg === "string" && (arg.startsWith("./") || arg.startsWith("../")));
+}
+
+function validateExecPaths(manifest, hasPath) {
+  const errs = [];
+  for (const raw of relativeExecPaths(manifest)) {
+    const normalized = posix.normalize(raw.replaceAll("\\", "/"));
+    if (normalized === ".." || normalized.startsWith("../") || posix.isAbsolute(normalized)) {
+      errs.push(`exec path escapes plugin root: ${raw}`);
+    } else {
+      const rel = normalized.replace(/^\.\//, "");
+      if (!hasPath(rel)) errs.push(`exec path does not exist: ${raw}`);
+    }
+  }
+  return errs;
+}
 
 function pluginDirs() {
   if (!existsSync(PLUGINS_DIR)) return [];
@@ -124,12 +162,22 @@ function validate() {
     const name = m.name || "";
     if (!SAFE_NAME.test(name) || name === "." || name === "..") errs.push(`bad name "${name}" (1-96 chars: A-Z a-z 0-9 . _ -)`);
     if (name && name !== dir) errs.push(`name "${name}" != submodule dir "${dir}"`);
-    if (!m.version) errs.push("missing version");
+    if (typeof m.version !== "string" || !SAFE_VERSION.test(m.version)) errs.push("version must be SemVer (for release tag v<version>)");
     const proto = m.protocol == null ? 1 : m.protocol;
     if (typeof proto !== "number" || proto > 1) errs.push(`unsupported protocol ${proto} (max 1)`);
-    if (!Array.isArray(m.exec) || m.exec.length === 0) errs.push("missing/empty exec array");
+    if (!Array.isArray(m.exec) || m.exec.length === 0 || m.exec.some((arg) => typeof arg !== "string" || !arg)) {
+      errs.push("exec must be a non-empty array of non-empty strings");
+    } else {
+      errs.push(...validateExecPaths(m, (rel) => existsSync(join(full, ...rel.split("/")))));
+    }
     const caps = Object.keys(m.capabilities || {}).filter((k) => KNOWN_CAPS.includes(k));
     if (caps.length === 0) errs.push("no known capability (viewer/thumbnail/packer/fs/converter)");
+    if (m.release != null) {
+      if (!m.release || typeof m.release !== "object" || Array.isArray(m.release)) errs.push("release must be an object");
+      else if (m.release.artifact != null && (!SAFE_ASSET.test(m.release.artifact) || basename(m.release.artifact) !== m.release.artifact)) {
+        errs.push(`unsafe release.artifact '${m.release.artifact}'`);
+      }
+    }
     // Reject symlinks in the tree (the app refuses them on install).
     for (const link of findSymlinks(full)) errs.push(`symlink not allowed: ${link}`);
 
@@ -152,106 +200,202 @@ function findSymlinks(dir, rel = "", out = []) {
   return out;
 }
 
-// ---- packaging (hand-rolled zip, no external tools) ----------------------
+// ---- release artifact verification + packaging ---------------------------
 
-const CRC_TABLE = (() => {
-  const t = new Uint32Array(256);
-  for (let n = 0; n < 256; n++) {
-    let c = n;
-    for (let k = 0; k < 8; k++) c = (c & 1) ? (0xedb88320 ^ (c >>> 1)) : (c >>> 1);
-    t[n] = c >>> 0;
+function githubRepoUrl(gitUrl) {
+  const patterns = [
+    /^https:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/,
+    /^git@github\.com:([^/]+)\/([^/]+?)(?:\.git)?$/,
+    /^ssh:\/\/git@github\.com\/([^/]+)\/([^/]+?)(?:\.git)?$/,
+  ];
+  for (const pattern of patterns) {
+    const match = gitUrl.match(pattern);
+    if (match) return `https://github.com/${match[1]}/${match[2]}`;
   }
-  return t;
-})();
-function crc32(buf) {
-  let c = 0xffffffff;
-  for (let i = 0; i < buf.length; i++) c = CRC_TABLE[(c ^ buf[i]) & 0xff] ^ (c >>> 8);
-  return (c ^ 0xffffffff) >>> 0;
+  return "";
 }
 
-function walkFiles(dir, base = dir, out = []) {
-  for (const name of readdirSync(dir).sort()) {
-    if (ZIP_EXCLUDE.has(name)) continue;
-    const full = join(dir, name);
-    const st = lstatSync(full);
-    if (st.isSymbolicLink()) continue;
-    if (st.isDirectory()) walkFiles(full, base, out);
-    else if (st.isFile()) out.push(full);
+function releaseInfo(dir, manifest) {
+  const name = manifest.name;
+  const tag = `v${manifest.version}`;
+  let taggedCommit = captureOr(["rev-list", "-n", "1", tag], dir);
+  if (!taggedCommit) {
+    console.log(`Fetching release tag ${tag} for ${name}`);
+    run(["fetch", "--depth", "1", "origin", `refs/tags/${tag}:refs/tags/${tag}`], dir);
+    taggedCommit = captureOr(["rev-list", "-n", "1", tag], dir);
   }
-  return out;
+  const reviewedCommit = captureOr(["rev-parse", "HEAD"], dir);
+  if (!taggedCommit || taggedCommit !== reviewedCommit) {
+    die(`ERROR: ${name}: reviewed commit ${reviewedCommit || "unknown"} must be exact tag '${tag}'`);
+  }
+
+  const mod = parseGitmodules().find((entry) => entry.path === `plugins/${name}`);
+  if (!mod) die(`ERROR: ${name}: missing .gitmodules entry`);
+  const repoUrl = githubRepoUrl(mod.url);
+  if (!repoUrl) die(`ERROR: ${name}: release downloads currently require a github.com submodule URL`);
+  const artifact = manifest.release?.artifact || `${name}.zip`;
+  if (!SAFE_ASSET.test(artifact) || basename(artifact) !== artifact) {
+    die(`ERROR: ${name}: unsafe release artifact name '${artifact}'`);
+  }
+  const url = `${repoUrl}/releases/download/${encodeURIComponent(tag)}/${encodeURIComponent(artifact)}`;
+  return { tag, artifact, url };
 }
 
-// Build a standard ZIP (STORE or raw-DEFLATE per entry) with a fixed 1980
-// timestamp so identical inputs yield an identical archive (stable sha256).
-// Unix mode rides in the external attributes so the exec bit survives extract.
-function zipDir(dir) {
-  const MODTIME = 0, MODDATE = 0x0021; // 1980-01-01
-  const files = walkFiles(dir);
-  const local = [];
-  const central = [];
-  let offset = 0;
-  for (const full of files) {
-    const rel = full.slice(dir.length + 1).split(sep).join("/");
-    const nameBuf = Buffer.from(rel, "utf8");
-    const raw = readFileSync(full);
-    const crc = crc32(raw);
-    const deflated = deflateRawSync(raw, { level: 9 });
-    const useDeflate = deflated.length < raw.length;
-    const method = useDeflate ? 8 : 0;
-    const data = useDeflate ? deflated : raw;
-    const mode = (statSync(full).mode & 0o7777) || 0o644;
-    const externalAttrs = (((0o100000 | mode) << 16) >>> 0);
-
-    const lh = Buffer.alloc(30);
-    lh.writeUInt32LE(0x04034b50, 0);
-    lh.writeUInt16LE(20, 4);
-    lh.writeUInt16LE(0, 6);
-    lh.writeUInt16LE(method, 8);
-    lh.writeUInt16LE(MODTIME, 10);
-    lh.writeUInt16LE(MODDATE, 12);
-    lh.writeUInt32LE(crc, 14);
-    lh.writeUInt32LE(data.length, 18);
-    lh.writeUInt32LE(raw.length, 22);
-    lh.writeUInt16LE(nameBuf.length, 26);
-    lh.writeUInt16LE(0, 28);
-    local.push(lh, nameBuf, data);
-
-    const cd = Buffer.alloc(46);
-    cd.writeUInt32LE(0x02014b50, 0);
-    cd.writeUInt16LE(0x031e, 4); // version made by: unix, spec 2.0 (so mode is read)
-    cd.writeUInt16LE(20, 6);
-    cd.writeUInt16LE(0, 8);
-    cd.writeUInt16LE(method, 10);
-    cd.writeUInt16LE(MODTIME, 12);
-    cd.writeUInt16LE(MODDATE, 14);
-    cd.writeUInt32LE(crc, 16);
-    cd.writeUInt32LE(data.length, 20);
-    cd.writeUInt32LE(raw.length, 24);
-    cd.writeUInt16LE(nameBuf.length, 28);
-    cd.writeUInt16LE(0, 30);
-    cd.writeUInt16LE(0, 32);
-    cd.writeUInt16LE(0, 34);
-    cd.writeUInt16LE(0, 36);
-    cd.writeUInt32LE(externalAttrs, 38);
-    cd.writeUInt32LE(offset, 42);
-    central.push(cd, nameBuf);
-
-    offset += lh.length + nameBuf.length + data.length;
-  }
-  const centralBuf = Buffer.concat(central);
-  const eocd = Buffer.alloc(22);
-  eocd.writeUInt32LE(0x06054b50, 0);
-  eocd.writeUInt16LE(0, 4);
-  eocd.writeUInt16LE(0, 6);
-  eocd.writeUInt16LE(files.length, 8);
-  eocd.writeUInt16LE(files.length, 10);
-  eocd.writeUInt32LE(centralBuf.length, 12);
-  eocd.writeUInt32LE(offset, 16);
-  eocd.writeUInt16LE(0, 20);
-  return Buffer.concat([...local, centralBuf, eocd]);
+function artifactError(label, message) {
+  throw new Error(`ERROR: ${label}: ${message}`);
 }
 
-function pkg() {
+async function download(url, label) {
+  let response;
+  try {
+    response = await fetch(url, {
+      redirect: "follow",
+      headers: { "user-agent": "commander-plugins-catalog" },
+    });
+  } catch (error) {
+    artifactError(label, `release download failed: ${error.message}`);
+  }
+  if (!response.ok) artifactError(label, `release download returned HTTP ${response.status}: ${url}`);
+  const contentLength = Number(response.headers.get("content-length") || 0);
+  if (contentLength > MAX_RELEASE_BYTES) artifactError(label, `release asset exceeds ${MAX_RELEASE_BYTES} bytes`);
+  const buf = Buffer.from(await response.arrayBuffer());
+  if (buf.length > MAX_RELEASE_BYTES) artifactError(label, `release asset exceeds ${MAX_RELEASE_BYTES} bytes`);
+  return buf;
+}
+
+function zipEntries(buf, label) {
+  let eocd = -1;
+  for (let i = buf.length - 22, min = Math.max(0, buf.length - 65557); i >= min && i >= 0; i--) {
+    if (buf.readUInt32LE(i) === 0x06054b50) { eocd = i; break; }
+  }
+  if (eocd < 0) artifactError(label, "invalid ZIP (end record not found)");
+  if (buf.readUInt16LE(eocd + 4) !== 0 || buf.readUInt16LE(eocd + 6) !== 0) {
+    artifactError(label, "multi-disk ZIPs are not supported");
+  }
+  const count = buf.readUInt16LE(eocd + 10);
+  let offset = buf.readUInt32LE(eocd + 16);
+  const entries = new Map();
+  for (let i = 0; i < count; i++) {
+    if (offset + 46 > buf.length || buf.readUInt32LE(offset) !== 0x02014b50) {
+      artifactError(label, "invalid ZIP central directory");
+    }
+    const flags = buf.readUInt16LE(offset + 8);
+    const method = buf.readUInt16LE(offset + 10);
+    const compressedSize = buf.readUInt32LE(offset + 20);
+    const size = buf.readUInt32LE(offset + 24);
+    const nameLen = buf.readUInt16LE(offset + 28);
+    const extraLen = buf.readUInt16LE(offset + 30);
+    const commentLen = buf.readUInt16LE(offset + 32);
+    const externalAttrs = buf.readUInt32LE(offset + 38);
+    const localOffset = buf.readUInt32LE(offset + 42);
+    const name = buf.subarray(offset + 46, offset + 46 + nameLen).toString("utf8");
+    const parts = name.split("/");
+    if ((flags & 1) !== 0) artifactError(label, "encrypted ZIP entries are not supported");
+    if (!name || name.includes("\\") || name.includes("\0") || name.startsWith("/") ||
+        parts.some((part, index) => (part === "" && index !== parts.length - 1) || part === "." || part === "..")) {
+      artifactError(label, `unsafe ZIP path '${name}'`);
+    }
+    const unixType = (externalAttrs >>> 16) & 0o170000;
+    if (unixType === 0o120000) artifactError(label, `symlink not allowed: ${name}`);
+    if (entries.has(name)) artifactError(label, `duplicate ZIP path '${name}'`);
+    entries.set(name, {
+      name, method, compressedSize, size, localOffset,
+      mode: (externalAttrs >>> 16) & 0o7777,
+      directory: name.endsWith("/"),
+    });
+    offset += 46 + nameLen + extraLen + commentLen;
+  }
+  return entries;
+}
+
+function readZipEntry(buf, entry, label) {
+  const offset = entry.localOffset;
+  if (offset + 30 > buf.length || buf.readUInt32LE(offset) !== 0x04034b50) {
+    artifactError(label, `invalid local ZIP entry for ${entry.name}`);
+  }
+  const nameLen = buf.readUInt16LE(offset + 26);
+  const extraLen = buf.readUInt16LE(offset + 28);
+  const start = offset + 30 + nameLen + extraLen;
+  const end = start + entry.compressedSize;
+  if (end > buf.length) artifactError(label, `truncated ZIP entry ${entry.name}`);
+  const compressed = buf.subarray(start, end);
+  let raw;
+  if (entry.method === 0) raw = compressed;
+  else if (entry.method === 8) raw = inflateRawSync(compressed);
+  else artifactError(label, `unsupported ZIP compression method ${entry.method} for ${entry.name}`);
+  if (raw.length !== entry.size) artifactError(label, `invalid uncompressed size for ${entry.name}`);
+  return raw;
+}
+
+function verifyReleaseZip(buf, sourceManifest, label) {
+  const entries = zipEntries(buf, label);
+  const manifestEntry = entries.get("plugin.json");
+  if (!manifestEntry || manifestEntry.directory) artifactError(label, "ZIP must contain plugin.json at its root");
+  if (manifestEntry.size > MAX_MANIFEST_BYTES) artifactError(label, "plugin.json exceeds 1 MiB");
+  let artifactManifest;
+  try { artifactManifest = JSON.parse(readZipEntry(buf, manifestEntry, label).toString("utf8")); }
+  catch (error) {
+    if (error.message.startsWith("ERROR:")) throw error;
+    artifactError(label, `invalid plugin.json in release ZIP: ${error.message}`);
+  }
+  if (!isDeepStrictEqual(artifactManifest, sourceManifest)) {
+    artifactError(label, "release plugin.json does not match the reviewed source plugin.json");
+  }
+  const errs = validateExecPaths(artifactManifest, (rel) => entries.has(rel) && !entries.get(rel).directory);
+  if (errs.length) artifactError(label, errs.join("; "));
+  const executable = artifactManifest.exec[0];
+  if (executable.startsWith("./")) {
+    const rel = posix.normalize(executable).replace(/^\.\//, "");
+    if ((entries.get(rel).mode & 0o111) === 0) artifactError(label, `exec entry is not executable: ${executable}`);
+  }
+}
+
+function verifyLocalRelease(rest) {
+  const sourceDir = rest[0];
+  const zipPath = rest[1];
+  if (!sourceDir || !zipPath) die("usage: plugins verify-release <plugin-dir> <archive.zip>");
+  const manifest = readManifest(sourceDir);
+  const buf = readFileSync(zipPath);
+  verifyReleaseZip(buf, manifest, `${manifest.name} ${manifest.version}`);
+  const sha = createHash("sha256").update(buf).digest("hex");
+  console.log(`Verified ${zipPath}\nsha256 ${sha}`);
+}
+
+async function lockPlugin(dir, lock) {
+  const manifest = readManifest(dir);
+  const release = releaseInfo(dir, manifest);
+  console.log(`Fetching ${manifest.name} ${manifest.version} from ${release.url}`);
+  const buf = await download(release.url, `${manifest.name} ${manifest.version}`);
+  verifyReleaseZip(buf, manifest, `${manifest.name} ${manifest.version}`);
+  lock.plugins[manifest.name] = {
+    version: manifest.version,
+    tag: release.tag,
+    commit: captureOr(["rev-parse", "HEAD"], dir),
+    artifact: release.artifact,
+    sha256: createHash("sha256").update(buf).digest("hex"),
+    size: buf.length,
+  };
+  console.log(`Locked ${manifest.name} ${manifest.version}`);
+}
+
+async function lockPlugins(rest) {
+  const target = rest[0];
+  if (!target) die("usage: plugins lock <name>|--all");
+  const dirs = target === "--all"
+    ? pluginDirs()
+    : [join(PLUGINS_DIR, target)];
+  if (target !== "--all" && (!existsSync(dirs[0]) || !existsSync(join(dirs[0], "plugin.json")))) {
+    die(`ERROR: no plugin '${target}'`);
+  }
+  const lock = readLock();
+  for (const dir of dirs) await lockPlugin(dir, lock);
+  const active = new Set(pluginDirs().map((dir) => basename(dir)));
+  for (const name of Object.keys(lock.plugins)) if (!active.has(name)) delete lock.plugins[name];
+  writeLock(lock);
+  console.log(`Wrote ${LOCK_PATH}`);
+}
+
+async function pkg() {
   const baseUrl = (process.env.PUBLIC_BASE_URL || "").replace(/\/+$/, "");
   if (!baseUrl) die("ERROR: missing PUBLIC_BASE_URL");
   const basePath = (process.env.PLUGINS_PREFIX || "plugins").replace(/^\/+|\/+$/g, "");
@@ -260,6 +404,7 @@ function pkg() {
   mkdirSync(out, { recursive: true });
 
   const plugins = [];
+  const lock = readLock();
   for (const dir of pluginDirs()) {
     const m = readManifest(dir);
     const name = m.name || "";
@@ -268,9 +413,21 @@ function pkg() {
     const destDir = join(out, name, version);
     mkdirSync(destDir, { recursive: true });
     const zipPath = join(destDir, `${name}.zip`);
-    const buf = zipDir(dir);
-    writeFileSync(zipPath, buf);
+    const release = releaseInfo(dir, m);
+    const pinned = lock.plugins[name];
+    const commit = captureOr(["rev-parse", "HEAD"], dir);
+    if (!pinned) die(`ERROR: ${name}: missing plugins.lock.json entry (run 'node scripts/plugins.mjs lock ${name}')`);
+    for (const [field, actual] of Object.entries({ version, tag: release.tag, commit, artifact: release.artifact })) {
+      if (pinned[field] !== actual) die(`ERROR: ${name}: lock ${field} '${pinned[field] || ""}' != reviewed '${actual}' (refresh the lock)`);
+    }
+    console.log(`Fetching ${name} ${version} from ${release.url}`);
+    const buf = await download(release.url, `${name} ${version}`);
+    verifyReleaseZip(buf, m, `${name} ${version}`);
     const sha = createHash("sha256").update(buf).digest("hex");
+    if (pinned.sha256 !== sha || pinned.size !== buf.length) {
+      die(`ERROR: ${name}: release asset bytes changed after approval (lock ${pinned.sha256}/${pinned.size}, download ${sha}/${buf.length})`);
+    }
+    writeFileSync(zipPath, buf);
     writeFileSync(`${zipPath}.sha256`, `${sha}  ${name}.zip\n`);
     plugins.push({
       name, version,
@@ -283,7 +440,7 @@ function pkg() {
       homepage: m.homepage || "",
       license: m.license || "",
     });
-    console.log(`Packaged ${name} ${version}`);
+    console.log(`Verified and copied ${name} ${version}`);
   }
   const indexPath = join(out, "index.json");
   writeFileSync(indexPath, `${JSON.stringify({ schema: 1, updated: new Date().toISOString(), plugins })}\n`);
@@ -291,10 +448,10 @@ function pkg() {
   return out;
 }
 
-function deploy() {
+async function deploy() {
   const bucket = process.env.STORAGE_BUCKET;
   if (!bucket) die("ERROR: missing STORAGE_BUCKET");
-  const out = pkg();
+  const out = await pkg();
   const prefix = (process.env.PLUGINS_PREFIX || "plugins").replace(/^\/+|\/+$/g, "");
   const region = process.env.AWS_REGION || "auto";
   const endpoint = process.env.STORAGE_ENDPOINT_URL;
@@ -352,7 +509,7 @@ function discoverManifestName(url) {
   return name;
 }
 
-function add(rest) {
+async function add(rest) {
   const { ref, pos } = splitRef(rest);
   const url = pos[0];
   let name = pos[1] || "";
@@ -397,10 +554,12 @@ function add(rest) {
   validate();
   console.log(`\nPinned commit:\n${captureOr(["rev-parse", "HEAD"], dest)}`);
   versionNote(dest);
+  console.log("\nLocking release artifact…");
+  await lockPlugins([name]);
   console.log(`\nNext:\n  git commit -am 'add ${name} plugin'   # then push your fork and open a PR`);
 }
 
-function update(rest) {
+async function update(rest) {
   const { ref, pos } = splitRef(rest);
   const target = pos[0];
   if (!target) die("usage: plugins update <name>|--all [--ref <ref>]");
@@ -427,6 +586,8 @@ function update(rest) {
   }
   console.log("\nValidating…");
   validate();
+  console.log("\nLocking release artifact…");
+  await lockPlugins(target === "--all" ? ["--all"] : [target]);
   console.log("\nReview the pinned-commit change with 'git diff', then commit + open a PR.");
 }
 
@@ -446,6 +607,9 @@ function remove(rest) {
     run(["submodule", "deinit", "-f", rel]);
     run(["rm", "-f", rel]);
     rmSync(modules, { recursive: true, force: true });
+    const lock = readLock();
+    delete lock.plugins[name];
+    writeLock(lock);
     console.log(`\nRemoved ${rel}. Commit + open a PR (deploy prunes it from storage).`);
   } else {
     // An orphaned leftover from an interrupted `add` (present on disk but absent
@@ -462,15 +626,26 @@ function remove(rest) {
 
 // ---- dispatch ------------------------------------------------------------
 
-const [cmd, ...rest] = process.argv.slice(2);
-switch (cmd) {
-  case "validate": validate(); break;
-  case "package": pkg(); break;
-  case "deploy": deploy(); break;
-  case "add": add(rest); break;
-  case "update": update(rest); break;
-  case "remove": remove(rest); break;
-  default:
-    console.error("usage: plugins <validate|add|update|remove|package|deploy> [args]");
-    process.exit(2);
+if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
+  const [cmd, ...rest] = process.argv.slice(2);
+  try {
+    switch (cmd) {
+      case "validate": validate(); break;
+      case "verify-release": verifyLocalRelease(rest); break;
+      case "lock": await lockPlugins(rest); break;
+      case "package": await pkg(); break;
+      case "deploy": await deploy(); break;
+      case "add": await add(rest); break;
+      case "update": await update(rest); break;
+      case "remove": remove(rest); break;
+      default:
+        console.error("usage: plugins <validate|verify-release|lock|add|update|remove|package|deploy> [args]");
+        process.exitCode = 2;
+    }
+  } catch (error) {
+    console.error(error.message);
+    process.exitCode = 1;
+  }
 }
+
+export { githubRepoUrl, verifyReleaseZip, zipEntries };

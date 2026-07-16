@@ -1,0 +1,59 @@
+name: release
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing vX.Y.Z tag to release
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    env:
+      RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - name: Checkout tagged source
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+
+      - name: Validate source
+        run: python3 -m compileall -q .
+
+      - name: Check tag and manifest version
+        id: plugin
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+
+          with open("plugin.json", encoding="utf-8") as stream:
+              plugin = json.load(stream)
+          with open(os.environ["GITHUB_OUTPUT"], "a", encoding="utf-8") as output:
+              print(f"name={plugin['name']}", file=output)
+              print(f"version={plugin['version']}", file=output)
+          PY
+          test "$RELEASE_TAG" = "v${{ steps.plugin.outputs.version }}"
+
+      - name: Build release asset
+        shell: bash
+        run: git archive --format=zip --output "$RUNNER_TEMP/${{ steps.plugin.outputs.name }}.zip" HEAD
+
+      - name: Publish release asset
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          if gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "$RUNNER_TEMP/${{ steps.plugin.outputs.name }}.zip" --clobber
+          else
+            gh release create "$RELEASE_TAG" "$RUNNER_TEMP/${{ steps.plugin.outputs.name }}.zip" --verify-tag --generate-notes
+          fi

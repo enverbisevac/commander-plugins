@@ -74,22 +74,31 @@ plugin…**), or copy it into the plugins dir manually:
 - Linux: `${XDG_DATA_HOME:-~/.local/share}/commander/plugins/<name>`
 - Windows: `%APPDATA%\Commander\plugins\<name>`
 
-## Versioning
+## Build and release contract
 
-Your plugin repo owns its own versioning — its own `vX.Y.Z` tags, GitHub
-releases, and changelog, independent of Commander and of this catalog. The
-catalog pins your plugin to a **release tag**.
+Your plugin repo owns its toolchain, tests, build, versioning, and GitHub
+release. This catalog never builds plugin code. It pins source for review and
+copies the plugin-owned release artifact after checking it.
 
 Convention: **tag `vX.Y.Z` ⟺ `plugin.json` `"version": "X.Y.Z"`**. To ship an
 update:
 
-1. Bump `plugin.json` `version`, commit, and tag `vX.Y.Z` in your repo.
-2. Open a PR here (or ask the owner) to re-pin the submodule to the new tag.
+1. Build the installable plugin in the plugin repo using its own language tools.
+2. Put `plugin.json` at the ZIP root. It must match the tagged source manifest.
+3. Publish tag/release `vX.Y.Z` with asset `<plugin-name>.zip`. To use another
+   ZIP filename, set `release.artifact` in `plugin.json`.
+4. Open a PR here (or ask the owner) to re-pin the submodule to that tag.
 
-The catalog stores each version at `plugins/<name>/<version>/<name>.zip`, so a
-version bump publishes a fresh, immutable path. Re-pinning to a new commit
-**without** bumping the version overwrites the same URL with different bytes —
-always bump the version.
+The `add`/`update` command also downloads the asset and updates
+`plugins.lock.json` with its commit, tag, SHA-256, and size. If you added the
+submodule manually, run `node scripts/plugins.mjs lock <name>`.
+
+The gate rejects ZIP path traversal, symlinks, a missing/different manifest,
+missing relative exec paths, a non-executable relative entrypoint, and any asset
+whose bytes changed after review. It stores the exact locked release bytes at
+`plugins/<name>/<version>/<name>.zip`. See
+[`docs/release-contract.md`](docs/release-contract.md) for a
+workflow example and the full contract.
 
 ## Submit
 
@@ -97,7 +106,7 @@ Fork this repo, add your plugin as a submodule pinned to your release tag, and
 open a PR:
 
 ```sh
-node scripts/plugins.mjs add <git-url> <name> --ref vX.Y.Z
+node scripts/plugins.mjs add <github-url> <name> --ref vX.Y.Z
 node scripts/plugins.mjs validate
 git commit -am "add <name> plugin"     # then push your fork and open a PR
 ```

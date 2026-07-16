@@ -11,7 +11,10 @@
     "node": ">=18"
   },
   "scripts": {
+    "test": "node --test scripts/*.test.mjs",
     "validate": "node scripts/plugins.mjs validate",
+    "verify-release": "node scripts/plugins.mjs verify-release",
+    "lock": "node scripts/plugins.mjs lock",
     "add": "node scripts/plugins.mjs add",
     "update": "node scripts/plugins.mjs update",
     "remove": "node scripts/plugins.mjs remove",

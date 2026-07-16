@@ -7,8 +7,10 @@ on:
     branches: [main]
     paths:
       - "plugins/**"
+      - "plugins.lock.json"
       - ".gitmodules"
       - "scripts/**"
+      - "package.json"
       - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
@@ -34,7 +36,10 @@ jobs:
       - name: Validate plugin manifests
         run: node scripts/plugins.mjs validate
 
-      - name: Package + deploy catalog
+      - name: Test catalog gate
+        run: npm test
+
+      - name: Verify, copy, and deploy release assets
         env:
           AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
           AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}

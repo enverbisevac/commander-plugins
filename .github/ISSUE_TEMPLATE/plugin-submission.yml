@@ -8,9 +8,9 @@ body:
       value: |
         Thanks for submitting a plugin! It will be reviewed before being added.
         Your plugin must be a **public git repository** whose root holds a valid
-        `plugin.json` (see [CONTRIBUTING](../blob/main/CONTRIBUTING.md) for the
-        protocol). Once approved, the exact commit you reference is pinned as a
-        git submodule.
+        `plugin.json` and a GitHub release asset named `<plugin-name>.zip` (see
+        [CONTRIBUTING](../blob/main/CONTRIBUTING.md)). Once approved, the exact
+        tagged commit you reference is pinned as a git submodule.
   - type: input
     id: name
     attributes:
@@ -30,9 +30,11 @@ body:
   - type: input
     id: ref
     attributes:
-      label: Commit / tag to pin (optional)
-      description: The exact ref to review and pin. Defaults to the default branch tip.
+      label: Release tag
+      description: Must be vX.Y.Z and match plugin.json version X.Y.Z.
       placeholder: v1.0.0
+    validations:
+      required: true
   - type: dropdown
     id: capability
     attributes:
@@ -73,6 +75,8 @@ body:
         - label: The plugin follows the Commander plugin protocol (docs/plugins.md).
           required: true
         - label: I understand the referenced commit will be reviewed and pinned; later pushes are not published until re-approved.
+          required: true
+        - label: The matching GitHub release contains an installable `<plugin-name>.zip` asset whose root plugin.json matches the tag.
           required: true
         - label: The repository contains no secrets, credentials, or bundled malware.
           required: true

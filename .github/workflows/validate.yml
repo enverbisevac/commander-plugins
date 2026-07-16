@@ -1,13 +1,16 @@
 name: validate-plugins
 
-# Validate manifests + that the catalog packages cleanly, without uploading.
+# Validate reviewed source + the plugin-owned release assets, without uploading.
 # Runs on PRs (e.g. a carry-forward or a proposed submodule change).
 on:
   pull_request:
     paths:
       - "plugins/**"
+      - "plugins.lock.json"
       - ".gitmodules"
       - "scripts/**"
+      - "package.json"
+      - ".github/workflows/validate.yml"
   workflow_dispatch:
 
 jobs:
@@ -28,7 +31,10 @@ jobs:
       - name: Validate plugin manifests
         run: node scripts/plugins.mjs validate
 
-      - name: Package (dry run, no upload)
+      - name: Test catalog gate
+        run: npm test
+
+      - name: Verify and stage release assets (dry run, no upload)
         env:
           PUBLIC_BASE_URL: https://example.invalid/commander
         run: node scripts/plugins.mjs package
