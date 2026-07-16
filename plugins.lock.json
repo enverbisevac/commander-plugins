@@ -34,12 +34,12 @@
       "size": 6485
     },
     "embroidery-viewer": {
-      "version": "0.1.0",
-      "tag": "v0.1.0",
-      "commit": "4e3555d4c1d42172e5c7077aa41fa729d76d8b63",
+      "version": "0.1.1",
+      "tag": "v0.1.1",
+      "commit": "34765fea8f989e3b790ad0ba17e6ab887293b71f",
       "artifact": "embroidery-viewer.zip",
-      "sha256": "1b17078a9c2a70de2a695689d9945588a2ecff27d47908ed1e27ea1cf9e8b6d2",
-      "size": 8570
+      "sha256": "e1491457ba8e1d481cee4354908df4835ea8daa89eb25bbdb993d729a447bdf5",
+      "size": 8437
     },
     "sevenzip-packer": {
       "version": "1.0.0",
