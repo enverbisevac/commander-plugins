@@ -22,3 +22,6 @@
 [submodule "plugins/archive-fs"]
 	path = plugins/archive-fs
 	url = https://github.com/enverbisevac/commander-plugin-archive-fs.git
+[submodule "plugins/github-actions-viewer"]
+	path = plugins/github-actions-viewer
+	url = https://github.com/enverbisevac/commander-plugin-github-action-viewer.git

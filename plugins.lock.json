@@ -41,6 +41,14 @@
       "sha256": "e1491457ba8e1d481cee4354908df4835ea8daa89eb25bbdb993d729a447bdf5",
       "size": 8437
     },
+    "github-actions-viewer": {
+      "version": "1.0.0",
+      "tag": "v1.0.0",
+      "commit": "de3b24904333463487a7d1fef65df5050d59c962",
+      "artifact": "github-actions-viewer.zip",
+      "sha256": "6b0e19ffc619ee9e1713a29beb532b351f4ff948c0b374627ac386f1e0772d05",
+      "size": 13267
+    },
     "sevenzip-packer": {
       "version": "1.0.0",
       "tag": "v1.0.0",
