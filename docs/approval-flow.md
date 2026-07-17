@@ -15,7 +15,7 @@ Then the dev forks `commander-plugins` and pins that exact release tag:
 
 ```sh
 node scripts/plugins.mjs add <github-url> <name> --ref vX.Y.Z
-git commit -am "add <name> plugin"
+git commit -m "add <name> plugin"
 ```
 
 `add` downloads and validates the release, then records its commit, tag, asset,

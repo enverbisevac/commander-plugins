@@ -108,7 +108,7 @@ open a PR:
 ```sh
 node scripts/plugins.mjs add <github-url> <name> --ref vX.Y.Z
 node scripts/plugins.mjs validate
-git commit -am "add <name> plugin"     # then push your fork and open a PR
+git commit -m "add <name> plugin"      # then push your fork and open a PR
 ```
 
 The tooling is a zero-dependency Node CLI (Node ≥ 18 + git) — it runs the same on

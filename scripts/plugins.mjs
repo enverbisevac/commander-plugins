@@ -556,7 +556,8 @@ async function add(rest) {
   versionNote(dest);
   console.log("\nLocking release artifact…");
   await lockPlugins([name]);
-  console.log(`\nNext:\n  git commit -am 'add ${name} plugin'   # then push your fork and open a PR`);
+  run(["add", "--", "plugins.lock.json"]);
+  console.log(`\nNext:\n  git commit -m 'add ${name} plugin'   # then push your fork and open a PR`);
 }
 
 async function update(rest) {
